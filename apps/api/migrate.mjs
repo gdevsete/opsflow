@@ -1,0 +1,1 @@
+import fs from 'node:fs'; import path from 'node:path'; import pg from 'pg'; const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL }); const dir = path.resolve('src/database/migrations'); for (const f of fs.readdirSync(dir).sort()) { if (f.endsWith('.sql')) await pool.query(fs.readFileSync(path.join(dir, f), 'utf8')); } await pool.end();

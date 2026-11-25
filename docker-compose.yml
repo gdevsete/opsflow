@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: opsflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opsflow_admin
+      POSTGRES_PASSWORD: opsflow_dev_password
+      POSTGRES_DB: opsflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - opsflow_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+      - ./apps/api/src/database/migrations/001_init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
+      - ./apps/api/src/database/migrations/002_rls_policies.sql:/docker-entrypoint-initdb.d/02_rls_policies.sql:ro
+      - ./apps/api/src/database/migrations/003_lgpd_audit.sql:/docker-entrypoint-initdb.d/03_lgpd_audit.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsflow_admin -d opsflow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  opsflow_pgdata:
