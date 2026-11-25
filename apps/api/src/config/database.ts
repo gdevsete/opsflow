@@ -3,15 +3,21 @@ import { env } from './env.js';
 
 export const appPool = new Pool({
   connectionString: env.DATABASE_URL,
-  max: 20,
+  max: 1,
   idleTimeoutMillis: 30000,
+  ssl: env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
 });
 
-export const adminPool = new Pool({
-  connectionString: env.DATABASE_ADMIN_URL,
-  max: 5,
-  idleTimeoutMillis: 30000,
-});
+// Administrative access is intentionally optional and is not used by the public API.
+// Keep it available for local migration/test tooling when explicitly configured.
+export const adminPool = env.DATABASE_ADMIN_URL
+  ? new Pool({
+      connectionString: env.DATABASE_ADMIN_URL,
+      max: 1,
+      idleTimeoutMillis: 30000,
+      ssl: env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+    })
+  : null;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,5 +48,5 @@ export async function withTenantContext<T>(
 }
 
 export async function closeDatabasePools(): Promise<void> {
-  await Promise.all([appPool.end(), adminPool.end()]);
+  await Promise.all([appPool.end(), adminPool?.end() ?? Promise.resolve()]);
 }

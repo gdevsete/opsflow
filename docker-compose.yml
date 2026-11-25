@@ -15,6 +15,7 @@ services:
       - ./apps/api/src/database/migrations/001_init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
       - ./apps/api/src/database/migrations/002_rls_policies.sql:/docker-entrypoint-initdb.d/02_rls_policies.sql:ro
       - ./apps/api/src/database/migrations/003_lgpd_audit.sql:/docker-entrypoint-initdb.d/03_lgpd_audit.sql:ro
+      - ./apps/api/src/database/migrations/004_auth_functions.sql:/docker-entrypoint-initdb.d/04_auth_functions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U opsflow_admin -d opsflow_db"]
       interval: 5s

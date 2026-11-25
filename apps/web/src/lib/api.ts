@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'opsflow_jwt';
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,7 +20,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const response = await fetch(`/api/v1${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(typeof payload?.title === 'string' ? payload.title : `Request failed (${response.status})`);

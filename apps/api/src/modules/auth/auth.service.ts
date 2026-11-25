@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { adminPool } from '../../config/database.js';
+import { appPool } from '../../config/database.js';
 import { hashPassword, verifyPassword } from '../../utils/crypto.js';
 import { AppError } from '../../utils/appError.js';
 import { LoginInput, RegisterInput } from './auth.schema.js';
@@ -20,66 +20,51 @@ export async function registerOrganizationAndOwner(
   input: RegisterInput,
   meta: { ip?: string; userAgent?: string }
 ) {
-  const client = await adminPool.connect();
+  const slug = slugify(input.organizationName);
+  const passwordHash = await hashPassword(input.password);
+
   try {
-    await client.query('BEGIN');
-
-    const slug = slugify(input.organizationName);
-    const orgResult = await client.query<{ id: string; name: string; slug: string }>(
-      `INSERT INTO organizations (name, slug)
-       VALUES ($1, $2)
-       RETURNING id, name, slug`,
-      [input.organizationName, slug]
-    );
-    const org = orgResult.rows[0]!;
-
-    const passwordHash = await hashPassword(input.password);
-    const userResult = await client.query<{
-      id: string;
+    const result = await appPool.query<{
+      organization_id: string;
+      organization_name: string;
+      organization_slug: string;
+      user_id: string;
       full_name: string;
       email: string;
       role: UserRole;
     }>(
-      `INSERT INTO users (organization_id, full_name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4, 'OWNER')
-       RETURNING id, full_name, email, role`,
-      [org.id, input.fullName, input.email.toLowerCase(), passwordHash]
+      `SELECT * FROM register_organization_and_owner($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        input.organizationName,
+        slug,
+        input.fullName,
+        input.email.toLowerCase(),
+        passwordHash,
+        input.policyVersion,
+        meta.ip ?? null,
+        meta.userAgent ?? null,
+      ]
     );
-    const user = userResult.rows[0]!;
-
-    await client.query(
-      `INSERT INTO consent_records (
-        organization_id, subject_type, subject_id, purpose, policy_version, granted, ip_address, user_agent
-      ) VALUES ($1, 'USER', $2, 'ACCOUNT_PROVISIONING_AND_TERMS', $3, TRUE, $4, $5)`,
-      [org.id, user.id, input.policyVersion, meta.ip ?? null, meta.userAgent ?? null]
-    );
-
-    await client.query(
-      `INSERT INTO audit_logs (
-        organization_id, actor_user_id, action, resource_type, resource_id, ip_address, user_agent, metadata
-      ) VALUES ($1, $2, 'ORGANIZATION_CREATED', 'ORGANIZATION', $1, $3, $4, $5::jsonb)`,
-      [org.id, user.id, meta.ip ?? null, meta.userAgent ?? null, JSON.stringify({ slug })]
-    );
-
-    await client.query('COMMIT');
+    const created = result.rows[0]!;
 
     return {
-      organization: org,
+      organization: {
+        id: created.organization_id,
+        name: created.organization_name,
+        slug: created.organization_slug,
+      },
       user: {
-        id: user.id,
-        fullName: user.full_name,
-        email: user.email,
-        role: user.role,
+        id: created.user_id,
+        fullName: created.full_name,
+        email: created.email,
+        role: created.role,
       },
     };
   } catch (error: unknown) {
-    await client.query('ROLLBACK');
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
       throw new AppError('An account with this email already exists.', 409, 'EMAIL_CONFLICT');
     }
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -87,9 +72,7 @@ export async function authenticateUser(
   input: LoginInput,
   meta: { ip?: string; userAgent?: string }
 ) {
-  const client = await adminPool.connect();
-  try {
-    const result = await client.query<{
+  const result = await appPool.query<{
       id: string;
       organization_id: string;
       full_name: string;
@@ -98,15 +81,7 @@ export async function authenticateUser(
       role: UserRole;
       is_active: boolean;
       org_name: string;
-    }>(
-      `SELECT u.id, u.organization_id, u.full_name, u.email, u.password_hash, u.role, u.is_active,
-              o.name AS org_name
-       FROM users u
-       JOIN organizations o ON o.id = u.organization_id
-       WHERE u.email = $1
-       LIMIT 1`,
-      [input.email.toLowerCase()]
-    );
+    }>(`SELECT * FROM find_user_for_login($1)`, [input.email.toLowerCase()]);
 
     const user = result.rows[0];
     if (!user || !user.is_active) {
@@ -118,26 +93,21 @@ export async function authenticateUser(
       throw new AppError('Invalid credentials.', 401, 'INVALID_CREDENTIALS');
     }
 
-    await client.query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]);
+    await appPool.query(`SELECT record_user_login($1, $2, $3, $4)`, [
+      user.organization_id,
+      user.id,
+      meta.ip ?? null,
+      meta.userAgent ?? null,
+    ]);
 
-    await client.query(
-      `INSERT INTO audit_logs (
-        organization_id, actor_user_id, action, resource_type, resource_id, ip_address, user_agent
-      ) VALUES ($1, $2, 'USER_LOGIN', 'USER', $2, $3, $4)`,
-      [user.organization_id, user.id, meta.ip ?? null, meta.userAgent ?? null]
-    );
-
-    return {
-      user: {
-        id: user.id,
-        organizationId: user.organization_id,
-        organizationName: user.org_name,
-        fullName: user.full_name,
-        email: user.email,
-        role: user.role,
-      },
-    };
-  } finally {
-    client.release();
-  }
+  return {
+    user: {
+      id: user.id,
+      organizationId: user.organization_id,
+      organizationName: user.org_name,
+      fullName: user.full_name,
+      email: user.email,
+      role: user.role,
+    },
+  };
 }
