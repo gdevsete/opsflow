@@ -1,89 +1,128 @@
-# OpsFlow Enterprise
+# OpsFlow
 
-**Multi-Tenant Field Operations & LGPD/GDPR Compliance Platform**
+**Multi-tenant field operations console with privacy-oriented workflows**
 
-OpsFlow is a production-grade B2B SaaS platform engineered for technical service and field-maintenance organizations. It enforces tenant isolation at the database kernel level via PostgreSQL Row-Level Security (RLS), protects Personally Identifiable Information (PII) with envelope AES-256-GCM encryption and HMAC-SHA256 blind indexing, and implements verifiable Data Subject Rights (Art. 18 LGPD / Arts. 15-20 GDPR) backed by an immutable append-only audit ledger.
+OpsFlow is a local Docker-based portfolio project for technical service and field-maintenance teams. It combines a React/Vite console, a Fastify API, and PostgreSQL to demonstrate tenant-scoped operations, inventory and work-order workflows, encrypted customer document storage, consent records, data export, anonymisation, and audit logging.
 
----
+This repository is a demonstrable software project, not a claim of legal compliance, production readiness, or security certification. The privacy features are implemented as application capabilities that can support data-subject workflows; legal obligations depend on the organisation, processing context, policies, and operational controls around the software.
 
-## Architectural Highlights
+## Architecture
 
-### 1. Defense-in-Depth Multi-Tenancy (PostgreSQL RLS)
-- Every tenant-scoped table (users, customers, inventory_items, work_orders, work_order_parts, consent_records, udit_logs) enforces FORCE ROW LEVEL SECURITY.
-- On every authenticated HTTP request, the API executes inside a scoped transaction (SET LOCAL app.current_tenant_id = ), preventing cross-tenant data leakage even in the event of an application-layer query flaw.
-- Integration tests explicitly assert cross-tenant read/write rejection and privilege boundary enforcement.
+- **Web console:** React 18, TypeScript, Vite, and a small custom design system.
+- **API:** Node.js 22, TypeScript strict mode, Fastify, Zod, JWT, Pino, and Argon2id password hashing.
+- **Database:** PostgreSQL 16 with tenant-scoped tables, Row-Level Security (RLS), and PL/pgSQL triggers for audit-log immutability.
+- **Local runtime:** Docker Compose for PostgreSQL; the API and web console run from the workspace during development.
 
-### 2. Cryptographic PII Vault & Blind Indexing
-- Sensitive customer identifiers (Tax ID / PPSN / CPF) are encrypted before persistence using **AES-256-GCM** with unique 96-bit random IVs and 128-bit authentication tags (pps/api/src/lib/crypto.ts).
-- Deterministic uniqueness checks within a tenant are performed via keyed **HMAC-SHA256 blind hashes** (document_hash), eliminating plaintext storage while preserving O(1) lookup performance.
-### 3. LGPD & GDPR Data Subject Rights Engine
-- **Consent Ledger (consent_records)**: Immutable proof of lawful basis, policy version, timestamp, and IP metadata upon tenant provisioning and customer onboarding.
-- **Data Portability (LGPD Art. 18, V / GDPR Art. 20)**: Structured JSON export of customer profile, decrypted PII (restricted to OWNER/ADMIN), consent history, and work order records, generating a mandatory audit event on every export.
-- **Crypto-Shredding & Anonymization (LGPD Art. 18, VI / GDPR Art. 17)**: Irreversibly scrubs personal identifiers and destroys encrypted document payloads while preserving anonymized fiscal work order totals for statutory tax retention.
+## Implemented capabilities
 
-### 4. Transactional Inventory & Financial Integrity
-- All monetary values are stored as integer cents (BIGINT / INTEGER) to eliminate IEEE-754 floating-point drift.
-- Work order creation atomically locks inventory rows (SELECT ... FOR UPDATE), validates available stock, deducts spare parts, and computes line-item and labor totals inside a single ACID transaction.
-- Database triggers enforce state-machine transitions (OPEN -> IN_PROGRESS -> COMPLETED / CANCELLED), automatically stamp completed_at, and prevent mutations on immutable audit logs.
+### Tenant-scoped data access
 
----
+The migrations enable RLS on `organizations`, `users`, `customers`, `inventory_items`, `work_orders`, `work_order_items`, `stock_movements`, `consent_records`, and `audit_logs`. The API sets `app.current_tenant_id` locally inside tenant transactions, and the policies compare that setting with each row's `organization_id` (or the organisation `id`).
 
-## Tech Stack
+The migrations enable RLS; they do not use PostgreSQL `FORCE ROW LEVEL SECURITY`. The integration suite includes a cross-tenant customer-visibility scenario in [tenantIsolation.test.ts](apps/api/tests/integration/tenantIsolation.test.ts).
 
-| Layer | Technologies |
-| :--- | :--- |
-| **Backend API** | Node.js 22, TypeScript (Strict), Fastify, Zod, JWT (@fastify/jwt), Pino |
-| **Database & Security** | PostgreSQL 16, Row-Level Security (RLS), PL/pgSQL Triggers, AES-256-GCM, HMAC-SHA256, Argon2id |
-| **Frontend Console** | React 18, TypeScript, Vite, Lucide Icons, Custom Industrial Design System |
-| **Testing & DevOps** | Vitest (Unit & Integration Suites), Docker Compose, GitHub Actions CI |
+### Customer document protection
 
----
+Customer documents are encrypted before persistence with AES-256-GCM using a 32-byte key from `PII_ENCRYPTION_KEY`. A keyed HMAC-SHA256 blind index supports tenant-local duplicate checks without storing the normalised document value in plaintext. This is an implementation detail of this demo and should be reviewed before any real deployment.
 
-## Local Setup & Verification
+### Privacy-support workflows
 
-1. Start PostgreSQL & configure environment:
-   - docker compose up -d
-   - cp .env.example .env
-2. Install dependencies & run SQL migrations:
-   - npm install
-   - npm run db:migrate --workspace=@opsflow/api
-3. Run security, RLS & compliance integration tests:
-   - npm test --workspace=@opsflow/api
-4. Start API (:3001) and Web Console (:5173):
-   - npm run dev --workspace=@opsflow/api
-   - npm run dev --workspace=@opsflow/web
+The API records consent events, exports a customer's structured data bundle for authorised OWNER and ADMIN users, records the export in `audit_logs`, and anonymises customer identifiers while retaining the related operational records. These are privacy and data-subject workflow features; the project does not make a legal GDPR or LGPD compliance promise.
 
----
+### Work orders and inventory
 
-## API Overview (/api/v1)
+Monetary values are represented as integer cents. Work-order creation uses a database transaction and locks inventory rows while validating and deducting parts. The migrations include an immutable-audit-log trigger. They do not include database triggers for work-order status transitions; status validation is implemented in the API service layer.
+
+## Local setup
+
+Prerequisites: Node.js 22+, npm, and Docker Desktop.
+
+1. Start PostgreSQL:
+
+   ```powershell
+   docker compose up -d postgres
+   ```
+
+   On a new Docker volume, Compose runs the SQL files mounted from `apps/api/src/database/migrations/`. The database role and credentials in `docker-compose.yml` are local development values only.
+
+2. Create the local environment file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   `.env.example` contains fictional local-only values and matches the variables required by [env.ts](apps/api/src/config/env.ts). Before using the project outside this local setup, replace `JWT_SECRET` with a randomly generated secret of at least 32 characters and generate a fresh 32-byte hexadecimal `PII_ENCRYPTION_KEY`, for example:
+
+   ```powershell
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+   ```
+
+   Never commit `.env` or real credentials.
+
+3. Install dependencies:
+
+   ```powershell
+   npm install
+   ```
+
+4. For a separately provisioned database, run the migration script from the API workspace with the administrative connection configured in `DATABASE_ADMIN_URL`:
+
+   ```powershell
+   npm --workspace=apps/api run db:migrate
+   ```
+
+   The script loads `.env` and applies the SQL files in order. Do not run it against a database that already contains these migrations unless you have a migration/rebuild plan; the current SQL files are initialisation scripts rather than an idempotent migration framework.
+
+5. Start the API and web console in separate terminals:
+
+   ```powershell
+   npm run dev:api
+   npm run dev:web
+   ```
+
+   The API listens on `http://localhost:3333`, the web console on `http://localhost:5173`, and the API health endpoint is `GET /health`.
+
+## API overview
+
+All business routes below include the `/api/v1` prefix. The paths are registered in [app.ts](apps/api/src/app.ts) and the individual route modules.
 
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| POST | /auth/register | Public | Provisions tenant organization, owner account, and initial privacy consent |
-| POST | /auth/login | Public | Authenticates operator and issues tenant-scoped JWT |
-| GET / POST | /customers | Authenticated | Lists customers or registers customer with AES-256-GCM PII encryption |
-| GET / POST | /inventory | Authenticated | Manages spare-part SKUs, pricing, and low-stock thresholds |
-| GET / POST | /work-orders | Authenticated | Dispatches work orders with atomic multi-part inventory deduction |
-| PATCH | /work-orders/:id/status | Authenticated | Advances work order lifecycle with state-machine validation |
-| GET | /privacy/customers/:id/export | OWNER, ADMIN | Exports portable JSON data bundle (LGPD Art. 18 / GDPR Art. 20) |
-| POST | /privacy/customers/:id/anonymize | OWNER, ADMIN | Irreversibly anonymizes customer PII while retaining fiscal records |
-| GET | /privacy/audit-logs | OWNER, ADMIN | Queries the tenant immutable append-only compliance audit ledger |
+| POST | `/api/v1/auth/register` | Public | Creates an organisation, owner account, and initial consent record |
+| POST | `/api/v1/auth/login` | Public | Authenticates an operator and issues a tenant-scoped JWT |
+| GET | `/api/v1/auth/me` | Authenticated | Returns the current JWT subject |
+| GET, POST | `/api/v1/customers` | Authenticated / OWNER, ADMIN, TECHNICIAN for POST | Lists or creates customers |
+| PATCH | `/api/v1/customers/:id` | OWNER, ADMIN | Updates a customer |
+| GET, POST | `/api/v1/inventory` | Authenticated / OWNER, ADMIN for POST | Lists or creates inventory items |
+| POST | `/api/v1/inventory/:id/movements` | OWNER, ADMIN, TECHNICIAN | Records a stock movement |
+| GET, POST | `/api/v1/work-orders` | Authenticated / OWNER, ADMIN, TECHNICIAN for POST | Lists or creates work orders |
+| PATCH | `/api/v1/work-orders/:id/status` | OWNER, ADMIN, TECHNICIAN | Updates work-order status through API validation |
+| GET | `/api/v1/privacy/customers/:id/export` | OWNER, ADMIN | Exports a customer's data bundle |
+| POST | `/api/v1/privacy/customers/:id/anonymize` | OWNER, ADMIN | Anonymises customer identifiers |
+| GET | `/api/v1/privacy/audit-logs` | OWNER, ADMIN | Lists tenant audit-log entries |
 
----
+## Testing and available checks
+
+The API package exposes `npm test --workspace=@opsflow/api`, and both packages expose TypeScript checks through their `lint` scripts. These commands were not run as part of this documentation review. Run them locally after configuring PostgreSQL and `.env`.
+
+There is currently no GitHub Actions workflow in this repository, so CI is intentionally not listed as an implemented project capability.
+
+## Screenshots
+
+The following images are present in `docs/screenshots/` and are referenced with working relative links:
+
+![Work orders dashboard](docs/screenshots/01-work-orders-dashboard.png)
+![PII vault and portability](docs/screenshots/02-pii-vault-portability.png)
+![Inventory and audit ledger](docs/screenshots/03-inventory-audit-ledger.png)
+
+## Portfolio notes
+
+- **Demo:** No hosted demo is configured. Add a public demo URL here if you deploy one.
+- **Professional contact:** Add your preferred LinkedIn, GitHub, email, or portfolio URL here before sharing this repository.
+- **Contribution:** This project is presented as a full-stack implementation covering the React console, Fastify API, PostgreSQL schema and RLS policies, encrypted document handling, privacy-support endpoints, and local Docker setup. Adjust this statement if the repository includes work from other contributors.
 
 ## Author
 
-**Guilherme Oliveira** — Full Stack Software Engineer  
-Focused on multi-tenant SaaS architecture, applied cryptography, and regulatory data engineering (GDPR/LGPD).
----
+**Guilherme Oliveira** - Full Stack Software Engineer
 
-## Interface & Compliance Walkthrough
-
-### 1. Operational Dashboard & Atomic Work Orders
-![Operational Dashboard & Work Orders](docs/screenshots/01-work-orders-dashboard.png)
-
-### 2. AES-256-GCM PII Vault & LGPD/GDPR Data Portability Export
-![PII Vault & Data Portability Bundle](docs/screenshots/02-pii-vault-portability.png)
-
-### 3. Warehouse Stock Health & Immutable Audit Ledger
-![Inventory & Immutable Audit Ledger](docs/screenshots/03-inventory-audit-ledger.png)
+Focused on multi-tenant SaaS architecture, applied cryptography, and privacy-oriented data workflows.
