@@ -75,3 +75,15 @@ OpsFlow is a production-grade B2B SaaS platform engineered for technical service
 
 **Guilherme Oliveira** — Full Stack Software Engineer  
 Focused on multi-tenant SaaS architecture, applied cryptography, and regulatory data engineering (GDPR/LGPD).
+---
+
+## Interface & Compliance Walkthrough
+
+### 1. Operational Dashboard & Atomic Work Orders
+![Operational Dashboard & Work Orders](docs/screenshots/01-work-orders-dashboard.png)
+
+### 2. AES-256-GCM PII Vault & LGPD/GDPR Data Portability Export
+![PII Vault & Data Portability Bundle](docs/screenshots/02-pii-vault-portability.png)
+
+### 3. Warehouse Stock Health & Immutable Audit Ledger
+![Inventory & Immutable Audit Ledger](docs/screenshots/03-inventory-audit-ledger.png)
