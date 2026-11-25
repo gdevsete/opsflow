@@ -24,7 +24,7 @@ export function InventoryAndAuditPage({ inventory, auditLogs, onRefresh }: Props
           sku: sku.toUpperCase(), name,
           unitCostCents: Math.round(priceCents * 0.6),
           unitPriceCents: priceCents,
-          quantityOnHand: parseInt(quantity || '0', 10),
+          initialQuantity: parseInt(quantity || '0', 10),
           minStockLevel: parseInt(minStock || '2', 10),
         }),
       });
